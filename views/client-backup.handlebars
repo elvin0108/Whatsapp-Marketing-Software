@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Message Sender</title>
+</head>
+
+<body>
+    <div id="qr-code-container">
+        <img id="qrcode" alt="QRCode" src="" height="350px"></img>
+    </div>
+    <div id="loading-mask">
+        <div class="spinner"></div>
+        <p style="text-align: center;">Application is getting ready!<br>Please Wait...</p>
+    </div>
+    <h1>WhatsApp Message Sender</h1>
+    <form id="message-form" action="/send-message" method="post" enctype="multipart/form-data">
+        <label for="message">Message:</label><br>
+        <textarea id="message" name="message" rows="4" cols="50" required></textarea><br>
+        <label for="attachment">Attachment:</label><br>
+        <input type="file" id="attachment" name="attachment"><br>
+        <label for="attachment-excel-type">Contact File Type:</label><br>
+        <select id="attachment-excel-type" name="attachment-excel-type">
+            <option value="none">None</option>
+            <option value="manual">Manually</option>
+            <option value="attachment">Attachment</option>
+        </select><br>
+        <div id="contact-manual" style="display:none;">
+            <label for="contact-manual-input">Enter Contacts (one per line):</label><br>
+            <textarea id="contact-manual-input" name="manualInput" rows="4" cols="50"></textarea><br>
+        </div>
+        <div id="contact-attachment" style="display:none;">
+            <label for="attachment-excel">Upload Contact File:</label><br>
+            <input type="file" id="attachment-excel" name="attachment-excel"><br>
+        </div>
+        <label for="minDelay">Minimum Delay (ms):</label><br>
+        <input type="number" id="minDelay" name="minDelay" required><br>
+        <label for="maxDelay">Maximum Delay (ms):</label><br>
+        <input type="number" id="maxDelay" name="maxDelay" required><br>
+        <button type="submit">Send Messages</button>
+    </form>
+    {{!-- <button id="download-btn">Download Contacts</button> --}}
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script>
+        window.addEventListener('DOMContentLoaded', () => {
+            const loadingMask = document.getElementById('loading-mask');
+            const messageForm = document.getElementById('message-form');
+            const qrcode = document.getElementById("qr-code-container");
+
+            // Function to check if client is ready
+            async function checkClientReady() {
+                try {
+                    const response = await fetch('/client-status');
+                    console.log(response);
+                    const { ready, qr, qrData } = await response.json();
+                    console.log(ready, qr);
+                    if (ready) {
+                        // Client is ready, show the form and hide the loading mask
+                        loadingMask.style.display = 'none';
+                        qrcode.style.display = 'none';
+                        messageForm.style.display = 'block';
+                    } else if (qr) {
+                        qrcode.style.display = 'flex';
+                        if (qrData) {
+                            await fetch('/qrcode', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({ data: qrData}) // Convert the data to JSON format
+                            })
+                                .then(response => {
+                                    if (!response.ok) {
+                                        throw new Error('Network response was not ok');
+                                    }
+                                     return response.json();
+                                })
+                                .then(data => {
+                                    // Do something with the response data
+                                    const { imgData } = data; // Destructure imgData from response data
+                                    generateQRCode(imgData);
+                                })
+                                .catch(error => {
+                                    console.error('There was a problem with the fetch operation:', error);
+                                });
+                        }
+                        loadingMask.style.display = 'none';
+                        setTimeout(checkClientReady, 5000);
+                    } else {
+                        // Client is not ready, show the loading mask
+                        qrcode.style.display = 'none';
+                        loadingMask.style.display = 'flex';
+                        // Retry after 15 seconds
+                        setTimeout(checkClientReady, 5000);
+                    }
+                } catch (error) {
+                    console.error('Error checking client status:', error);
+                }
+            }
+
+            function generateQRCode(imgData) {
+                var img = document.getElementById("qrcode");
+                img.src = "data:image/svg+xml;base64," + imgData;
+            }
+
+            // Check client status when the page is loaded
+            checkClientReady();
+        });
+
+        document.getElementById('attachment-excel-type').addEventListener('change', function () {
+            var selectedValue = this.value;
+            if (selectedValue === 'manual') {
+                document.getElementById('contact-manual').style.display = 'block';
+                document.getElementById('contact-attachment').style.display = 'none';
+            } else if (selectedValue === 'attachment') {
+                document.getElementById('contact-manual').style.display = 'none';
+                document.getElementById('contact-attachment').style.display = 'block';
+            } else {
+                 document.getElementById('contact-manual').style.display = 'none';
+                document.getElementById('contact-attachment').style.display = 'none';
+            }
+        });
+
+        document.getElementById('download-btn').addEventListener('click', async () => {
+            try {
+                const response = await fetch('/save-contacts');
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'contacts.xlsx';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('Error downloading contacts:', error);
+            }
+        });
+    </script>
+</body>
+
+</html>

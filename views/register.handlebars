@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register Page</title>
+</head>
+<body>
+    <div id="register-form">
+        <form id="register" action="/register" method="post">
+            <h1>Register User</h1>
+            <label for="username">Admin Password:</label><br>
+            <input type="password" id="admin" name="admin" required><br>
+            <label for="username">Username:</label><br>
+            <input type="text" id="username" name="username" required><br>
+            <label for="password">Password:</label><br>
+            <input type="password" id="password" name="password" required><br>
+            <label for="password">Confirm Password:</label><br>
+            <input type="password" id="password" name="cnfPassword" required><br>
+            <label for="password">Licence Key:</label><br>
+            <input type="password" id="password" name="licenceKey" required><br>
+            <button type="submit">Register</button>
+        </form>
+    </div>
+    
+    <script>
+        const registerForm = document.getElementById('register');
+        registerForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const formData = new FormData(registerForm); // Use loginForm instead of this
+                const response = await fetch('/register', {
+                    method: 'POST',
+                    body: new URLSearchParams(formData)
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    alert(data.message)
+                } else {
+                    alert(data.message);
+                }
+            });
+    </script>
+</body>
+</html>
