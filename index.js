@@ -31,7 +31,7 @@ app.use(express.static('public'));
 
 const clients = {}; // Store clients with user tokens
 
-mongoose.connect("mongodb://127.0.0.1:27017/user_registration")
+mongoose.connect("mongodb+srv://elvinkhunt:elvinkhunt@cluster0.byrb8sh.mongodb.net/user_registration")
 .then(()=>{
     console.log("Mongo Connected Successfully");
 })
