@@ -14,8 +14,11 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 require('dotenv').config();
 const User = require('./models/user');
-
+const { Server } = require('socket.io');
+const http = require('http');
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 const port = 3000;
 
 app.use(bodyParser.json());
@@ -131,6 +134,22 @@ const authenticateToken = (req, res, next) => {
     next();
 };
 
+io.on('connection', (socket) => {
+    console.log('A user connected:', socket.id);
+
+    socket.on('check-client-status', async (token) => {
+        const clientData = clients[token] || {};
+        const ready = clientData.isReady || false;
+        const qr = !!clientData.qrCode;
+        const qrData = clientData.qrCode;
+        socket.emit('client-status', { ready, qr, qrData });
+    });
+
+    socket.on('disconnect', () => {
+        console.log('A user disconnected:', socket.id);
+    });
+});
+
 // Multi-client initialization
 const initializeClient = (token) => {
     const client = new Client({
@@ -148,10 +167,13 @@ const initializeClient = (token) => {
     client.on('ready', () => {
         console.log('Client is ready!');
         clients[token].isReady = true;
+        io.emit('client-status-update', { token, ready: true });
     });
 
     client.on('qr', (qrCode) => {
         clients[token].qrCode = qrCode;
+        console.log('qr is ready!')
+        io.emit('client-status-update', { token, qr: true, qrData: qrCode });
     });
 
     client.on('message', async (msg) => {
@@ -308,6 +330,6 @@ async function sendMessageWithAttachment(client, number, message, attachmentPath
     }
 }
 
-app.listen(port, () => {
+server.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });

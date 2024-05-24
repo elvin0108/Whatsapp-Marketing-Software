@@ -55,9 +55,11 @@
     </form>
     <button id="download-btn" style="display:none;">Download Contacts</button>
     <footer>Developed by @Elvin-Khunt</footer>
-
+    <script src="/socket.io/socket.io.js"></script>
     <script>
         window.addEventListener('DOMContentLoaded', () => {
+            const socket = io();
+
             const loginForm = document.getElementById('login');
             const messageForm = document.getElementById('message-form');
             const loadingMask = document.getElementById('loading-mask');
@@ -66,13 +68,10 @@
 
             loginForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                const formData = new FormData(loginForm); // Use loginForm instead of this
+                const formData = new FormData(loginForm);
                 const token = sessionStorage.getItem('token');
                 if (token) {
-                    formData.append('token', token); // Append token to the form data
-                }
-                for (const [key, value] of formData.entries()) {
-                    console.log(key, value); // Log form data to check if it's being captured correctly
+                    formData.append('token', token);
                 }
                 const response = await fetch('/login', {
                     method: 'POST',
@@ -89,53 +88,54 @@
             });
 
             async function checkClientReady() {
-                try {
-                    const token = sessionStorage.getItem('token');
-                    const response = await fetch('/client-status', {
-                        headers: {
-                            'Authorization': `Bearer ${token}`
-                        }
-                    });
-                    const { ready, qr, qrData } = await response.json();
-                    if (ready) {
-                        loadingMask.style.display = 'none';
-                        qrCodeContainer.style.display = 'none';
-                        messageForm.style.display = 'block';
-                        {{!-- downloadBtn.style.display = 'block'; --}}
-                    } else if (qr) {
-                        qrCodeContainer.style.display = 'flex';
-                        if (qrData) {
-                            await fetch('/qrcode', {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Authorization': `Bearer ${token}`
-                                },
-                                body: JSON.stringify({ data: qrData })
-                            })
-                                .then(response => response.json())
-                                .then(data => {
-                                    const { imgData } = data;
-                                    generateQRCode(imgData);
-                                })
-                                .catch(error => console.error('Error generating QR code:', error));
-                        }
-                        loadingMask.style.display = 'none';
-                        setTimeout(checkClientReady, 5000);
-                    } else {
-                        qrCodeContainer.style.display = 'none';
-                        loadingMask.style.display = 'flex';
-                        setTimeout(checkClientReady, 5000);
-                    }
-                } catch (error) {
-                    console.error('Error checking client status:', error);
-                }
+                const token = sessionStorage.getItem('token');
+                socket.emit('check-client-status', token);
             }
+
+            socket.on('client-status', async ({ ready, qr, qrData }) => {
+                if (ready) {
+                    loadingMask.style.display = 'none';
+                    qrCodeContainer.style.display = 'none';
+                    messageForm.style.display = 'block';
+                    downloadBtn.style.display = 'block';
+                } else if (qr) {
+                    qrCodeContainer.style.display = 'flex';
+                    const token = sessionStorage.getItem('token');
+                    if (qrData) {
+                        await fetch('/qrcode', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ data: qrData })
+                        })
+                            .then(response => response.json())
+                            .then(data => {
+                                const { imgData } = data;
+                                generateQRCode(imgData);
+                            })
+                            .catch(error => console.error('Error generating QR code:', error));
+                    }
+                    loadingMask.style.display = 'none';
+                } else {
+                    qrCodeContainer.style.display = 'none';
+                    loadingMask.style.display = 'flex';
+                }
+            });
+
+            socket.on('client-status-update', ({ token, ready, qr, qrData }) => {
+                if (sessionStorage.getItem('token') === token) {
+                    socket.emit('check-client-status', token);
+                }
+            });
 
             function generateQRCode(imgData) {
                 const img = document.getElementById("qrcode");
                 img.src = "data:image/svg+xml;base64," + imgData;
             }
+
+            // Your existing form event listeners
 
             document.getElementById('attachment-excel-type').addEventListener('change', function () {
                 const selectedValue = this.value;
@@ -173,6 +173,7 @@
             });
         });
     </script>
+
 </body>
 
 </html>
