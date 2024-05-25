@@ -1,6 +1,6 @@
 const express = require('express');
 const { engine } = require('express-handlebars');
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, RemoteAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const multer = require('multer');
 const path = require('path');
@@ -19,6 +19,7 @@ const http = require('http');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+const {MongoStore} = require('wwebjs-mongo');
 const port = 3000;
 
 app.use(bodyParser.json());
@@ -33,14 +34,17 @@ app.set('view engine', 'handlebars');
 app.use(express.static('public'));
 
 const clients = {}; // Store clients with user tokens
+let store;
 
 mongoose.connect("mongodb+srv://elvinkhunt:elvinkhunt@cluster0.byrb8sh.mongodb.net/user_registration")
 .then(()=>{
+    store = new MongoStore({ mongoose: mongoose });
     console.log("Mongo Connected Successfully");
 })
 .catch((err)=>{
     console.log("Failed to Connect",err);
 });
+
 const users = {
     "id1": { username: "elvin-khunt", password: "password123", token: "elvin1234khunt01082002sanathali5678" }, // "password123"
     "id2": { username: "hitesh-dhaduk", password: "mypassword" }, // "mypassword"
@@ -49,17 +53,11 @@ const users = {
 
 const authenticate = async (req, res, next) => {
     const { username, password } = req.body;
-    const userDoc = await User.findOne({username:username});
-    const userId = userDoc.username;
-    const pass = userDoc.password;
-    if (!userDoc || !userId) {
-        return res.json({ message: "Authentication failed" });
+    const userDoc = await User.findOne({ username: username });
+    if (!userDoc || userDoc.password !== password) {
+        return res.status(400).json({ message: "Authentication failed" });
     }
-    if (password === pass) {
-        next();
-    } else {
-        res.status(400).json({ message: "Authentication failed" });
-    }
+    next();
 };
 
 const generateAlphanumericToken = (length) => {
@@ -76,47 +74,36 @@ app.get('/elvin/register', (req, res) => {
     res.render('register');
 });
 
-app.post('/register', async (req,res) => {
-    let {admin, username, password, cnfPassword, licenceKey} = req.body;
-    try{
+app.post('/register', async (req, res) => {
+    let { admin, username, password, cnfPassword, licenceKey } = req.body;
+    try {
         if (admin === process.env.admin) {
             if (password === cnfPassword) {
-                const users = await User.findOne({username:username});
-                if (users && users.username === username) {
-                    res.status(400).json({message:"User already exist!"});
+                const existingUser = await User.findOne({ username: username });
+                if (existingUser) {
+                    return res.status(400).json({ message: "User already exists!" });
                 } else {
-                    const userDoc = await User.create({
-                        username, 
-                        password,
-                        token: licenceKey
-                    });
-                    console.log("New user created on "+ new Date() + " : " +userDoc)
-                    res.status(200).json({message:"User Registered Successfully!"});
+                    const userDoc = await User.create({ username, password, token: licenceKey });
+                    console.log("New user created on " + new Date() + " : " + userDoc);
+                    res.status(200).json({ message: "User Registered Successfully!" });
                 }
-            } else{
-                res.status(400).json({message:"Password does not match"});
-            }  
+            } else {
+                res.status(400).json({ message: "Passwords do not match" });
+            }
         } else {
-            res.status(400).json({message: "Invalid Admin"})
+            res.status(400).json({ message: "Invalid Admin" });
         }
-    }
-    catch(e){
+    } catch (e) {
         res.status(400).json(e);
     }
-})
+});
 
-// User login route
 app.post('/login', authenticate, async (req, res) => {
-    let token = "";
-    let username = req.body.username;
-    const userDoc = await User.findOne({username:username});
-    token = userDoc.token;
-    // if (req.body.token){
-    //     token = req.body.token;
-    // } else {
-    //     token = generateAlphanumericToken(32); // Generate 32 character alphanumeric token
-    // }
-    req.session.token = token; // Store token in session
+    const username = req.body.username;
+    const userDoc = await User.findOne({ username: username });
+    const token = userDoc.token;
+    req.session.token = token;
+
     if (!clients[token]) {
         clients[token] = { isReady: false, qrCode: null, client: null }; // Initialize client data
         initializeClient(token);
@@ -124,7 +111,6 @@ app.post('/login', authenticate, async (req, res) => {
     res.json({ token });
 });
 
-// Middleware to check token
 const authenticateToken = (req, res, next) => {
     const token = req.session.token;
     if (!token || !clients[token]) {
@@ -150,10 +136,14 @@ io.on('connection', (socket) => {
     });
 });
 
-// Multi-client initialization
 const initializeClient = (token) => {
+
     const client = new Client({
-        authStrategy: new LocalAuth({ clientId: token }),
+        authStrategy: new RemoteAuth({
+            store: store,
+            clientId: token,
+            backupSyncIntervalMs: 300000
+        }),
         webVersionCache: {
             type: 'remote',
             remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
@@ -172,7 +162,7 @@ const initializeClient = (token) => {
 
     client.on('qr', (qrCode) => {
         clients[token].qrCode = qrCode;
-        console.log('qr is ready!')
+        console.log('QR code is ready!');
         io.emit('client-status-update', { token, qr: true, qrData: qrCode });
     });
 
@@ -183,7 +173,6 @@ const initializeClient = (token) => {
     });
 };
 
-// Set up multer for file upload
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         cb(null, 'uploads/');
@@ -195,21 +184,18 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-// Route to render the form
 app.get('/', (req, res) => {
     res.render('form');
 });
 
-// Route to check client status
 app.get('/client-status', authenticateToken, (req, res) => {
     const token = req.token;
     const clientData = clients[token] || {};
     res.json({ ready: clientData.isReady, qr: !!clientData.qrCode, qrData: clientData.qrCode });
 });
 
-// Route to generate QR code
 app.post('/qrcode', authenticateToken, async (req, res) => {
-    const textData = req.body.data || 'Hello, world!'; // Text to encode into QR code
+    const textData = req.body.data || 'Hello, world!';
     try {
         const qrSvgString = await qr.toString(textData, { type: 'svg' });
         const base64Data = Buffer.from(qrSvgString).toString('base64');
@@ -220,7 +206,6 @@ app.post('/qrcode', authenticateToken, async (req, res) => {
     }
 });
 
-// Route to handle form submission
 app.post('/send-message', [authenticateToken, upload.fields([{ name: 'attachment', maxCount: 1 }, { name: 'attachment-excel', maxCount: 1 }])], async (req, res) => {
     const { message, minDelay, maxDelay, manualInput } = req.body;
     const attachmentPath = req.files['attachment'] ? req.files['attachment'][0].path : null;
@@ -239,7 +224,7 @@ app.post('/send-message', [authenticateToken, upload.fields([{ name: 'attachment
     try {
         let numbers = "";
         if (excelPath) {
-            numbers = await readNumbersFromExcel(excelPath); // Pass the excelPath to readNumbersFromExcel function
+            numbers = await readNumbersFromExcel(excelPath);
         } else {
             numbers = manualInput.split(",");
         }
@@ -251,7 +236,6 @@ app.post('/send-message', [authenticateToken, upload.fields([{ name: 'attachment
     }
 });
 
-// Route to save contacts
 app.get('/save-contacts', authenticateToken, async (req, res) => {
     const token = req.token;
     const client = clients[token].client;
@@ -305,7 +289,7 @@ async function sendMessagesWithDelay(client, numbers, message, attachmentPath, m
         } catch (error) {
             console.error(`Error sending message to ${number}:`, error);
         }
-        const delay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + parseInt(minDelay); // Generate random delay between minDelay and maxDelay
+        const delay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + parseInt(minDelay);
         await new Promise(resolve => setTimeout(resolve, delay * 1000));
     }
 }
